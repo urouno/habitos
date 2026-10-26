@@ -1,13 +1,9 @@
-/* Hábitos · Service Worker
-   Guarda la app en el teléfono para que abra sin internet.
-   Los datos viven en el teléfono (localStorage) y se suben a Google Sheets
-   en cuanto hay conexión; las llamadas a Apps Script siempre van directo a la red.
-   Si cambias index.html, sube el número de versión para forzar la actualización. */
-const CACHE = 'habitos-v3';
-const ASSETS = ['./', './index.html', './manifest.json', './apple-touch-icon.png', './icon-192.png', './icon-512.png'];
+// Foco: funciona sin conexión. Cambia la versión cuando subas cambios para forzar la actualización.
+const CACHE = 'foco-v7';
+const ARCHIVOS = ['./', './index.html', './manifest.json', './icon-180.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ARCHIVOS)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
@@ -18,37 +14,18 @@ self.addEventListener('activate', e => {
   );
 });
 
-function guardar(req, res) {
-  if (res && res.ok) { const copia = res.clone(); caches.open(CACHE).then(c => c.put(req, copia)); }
-  return res;
-}
-
 self.addEventListener('fetch', e => {
-  const req = e.request;
-  if (req.method !== 'GET') return;
-  const url = new URL(req.url);
-  if (url.origin !== self.location.origin) return; // Apps Script y otros: directo a la red
+  if (e.request.method !== 'GET') return;
+  const url = new URL(e.request.url);
+  if (url.origin !== self.location.origin) return; // Google Apps Script y demás: siempre a la red
 
-  // Página principal: primero la red (para recibir actualizaciones), si tarda o no hay red, la copia guardada
-  if (req.mode === 'navigate' || url.pathname.endsWith('.html') || url.pathname.endsWith('/')) {
-    e.respondWith(new Promise(resolve => {
-      let listo = false;
-      const desdeCache = () => caches.match(req, { ignoreSearch: true })
-        .then(r => r || caches.match('./index.html'))
-        .then(r => { if (!listo && r) { listo = true; resolve(r); } return r; });
-      const timer = setTimeout(desdeCache, 3500);
-      fetch(req).then(res => {
-        clearTimeout(timer);
-        guardar(req, res);
-        if (!listo) { listo = true; resolve(res); }
-      }).catch(() => {
-        clearTimeout(timer);
-        desdeCache().then(r => { if (!listo) { listo = true; resolve(r || new Response('Sin conexión', { status: 503 })); } });
-      });
-    }));
-    return;
-  }
-
-  // Íconos, manifest, etc.: primero la copia guardada
-  e.respondWith(caches.match(req).then(r => r || fetch(req).then(res => guardar(req, res))));
+  // Primero la red (para recibir actualizaciones); si no hay internet, la copia guardada.
+  e.respondWith(
+    fetch(e.request)
+      .then(r => {
+        if (r.ok && !url.search) { const copia = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copia)); }
+        return r;
+      })
+      .catch(() => caches.match(e.request, { ignoreSearch:true }).then(r => r || caches.match('./index.html')))
+  );
 });
