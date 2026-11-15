@@ -136,8 +136,8 @@ svg{width:1em;height:1em;fill:none;stroke:currentColor;stroke-width:2.4;stroke-l
 /* Panel inferior (sheet) */
 #backdrop{position:fixed;inset:0;background:rgba(5,6,20,.5);opacity:0;pointer-events:none;transition:opacity .25s;z-index:40}
 #backdrop.open{opacity:1;pointer-events:auto}
-.sheet{position:fixed;left:0;right:0;bottom:0;max-width:520px;margin:0 auto;max-height:92vh;max-height:92dvh;background:var(--bg);border-radius:28px 28px 0 0;z-index:50;transform:translateY(105%);transition:transform .32s cubic-bezier(.2,.9,.3,1);display:flex;flex-direction:column;box-shadow:0 -10px 40px rgba(0,0,0,.25)}
-.sheet.open{transform:none}
+.sheet{position:fixed;left:0;right:0;bottom:0;max-width:520px;margin:0 auto;max-height:92vh;max-height:92dvh;background:var(--bg);border-radius:28px 28px 0 0;z-index:50;transform:translateY(105%);visibility:hidden;transition:transform .32s cubic-bezier(.2,.9,.3,1),visibility 0s .32s;display:flex;flex-direction:column;box-shadow:0 -10px 40px rgba(0,0,0,.25)}
+.sheet.open{transform:none;visibility:visible;transition:transform .32s cubic-bezier(.2,.9,.3,1),visibility 0s}
 .grab{width:42px;height:5px;border-radius:9px;background:var(--muted);opacity:.35;margin:9px auto 2px;flex:0 0 auto}
 #sheet-body{overflow-y:auto;-webkit-overflow-scrolling:touch;padding:4px 18px calc(18px + var(--safe-b));overscroll-behavior:contain}
 .sh-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0 12px}
@@ -321,6 +321,62 @@ textarea.inp{resize:none}
 .xpf{position:fixed;z-index:70;font-weight:900;color:var(--gold);font-size:18px;pointer-events:none;animation:xpf 1.1s forwards;text-shadow:0 2px 10px rgba(0,0,0,.25);transform:translateX(-50%)}
 @keyframes xpf{to{opacity:0;transform:translate(-50%,-56px) scale(1.15)}}
 #confetti{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:80}
+/* ---------- Teclado y ratón ---------- */
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+input:focus-visible,textarea:focus-visible{outline:none}
+input[type=number]{-moz-appearance:textfield;appearance:textfield}
+input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.fab-t{display:none}
+@media (hover:hover){
+  .hcard{cursor:pointer}
+  .hcard:hover,.tpl:hover,.opt:hover{transform:translateY(-2px)}
+  .tpl,.opt{transition:transform .15s}
+  .btn:hover,.fab:hover,.chk:hover,.duo button:hover,.stp button:hover,.rb:hover,.nstep button:hover,.xbtn:hover,.day:hover,.chips button:hover,.dias button:hover,.egrid button:hover,.sync:hover{filter:brightness(1.08)}
+  .tabbar>button:not(.fab):hover{color:var(--accent)}
+  .heat i[data-action]{cursor:pointer}
+  .heat i[data-action]:hover{outline:2px solid var(--accent);outline-offset:1px}
+  .hrow:hover b{color:var(--accent)}
+}
+
+/* ---------- Escritorio ---------- */
+@media (min-width:900px){
+  html{scrollbar-gutter:stable}
+  body{padding-left:232px}
+  body.noscroll{overflow:auto}
+  #app{max-width:1000px;padding:0 32px 56px}
+  .top{margin:0 -32px;padding:16px 32px 14px}
+  .hello h1{font-size:34px}
+
+  /* Barra lateral */
+  .tabbar{top:0;right:auto;width:232px;max-width:none;margin:0;flex-direction:column;justify-content:flex-start;align-items:stretch;gap:4px;padding:22px 14px;border-top:0;border-right:1px solid var(--line);background:var(--card)}
+  .tabbar::before{content:"Hábitos";font-weight:900;font-size:22px;letter-spacing:-.02em;padding:4px 12px 16px}
+  .tabbar>button{flex-direction:row;justify-content:flex-start;gap:12px;width:100%;padding:12px 14px;border-radius:14px;font-size:15px}
+  .tabbar>button.on{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+  .tabbar .fab{order:-1;height:48px;width:100%;margin:0 0 14px;justify-content:center;border-radius:16px;box-shadow:0 8px 20px rgba(108,92,231,.35);font-weight:800}
+  .tabbar .fab svg{width:20px;height:20px}
+  .tabbar::before{order:-2}
+  .fab-t{display:inline}
+
+  /* Rejillas */
+  .view.active{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:14px;align-items:start}
+  .view.active>*{grid-column:1/-1}
+  #v-hoy.active>.hcard{grid-column:auto;align-self:stretch}
+  #v-progreso.active>.card:nth-child(3),#v-progreso.active>.card:nth-child(4){grid-column:auto;align-self:stretch}
+  #v-ajustes.active>.card{grid-column:auto;align-self:stretch}
+  .week{gap:10px}
+  .lgrid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
+  .wbars{height:236px}
+
+  /* El panel inferior se vuelve ventana centrada */
+  .sheet{bottom:auto;top:50%;left:232px;max-width:620px;max-height:88vh;border-radius:28px;transform:translateY(-50%) scale(.96);opacity:0;transition:transform .22s,opacity .22s,visibility 0s .22s}
+  .sheet.open{transform:translateY(-50%);opacity:1;transition:transform .22s,opacity .22s,visibility 0s}
+  .grab{display:none}
+  #sheet-body{padding:16px 24px 22px;border-radius:28px}
+  .foot{bottom:-22px;margin-bottom:-22px;padding-bottom:22px}
+  .tgrid{grid-template-columns:repeat(3,1fr)}
+  #toasts{left:232px;bottom:28px}
+}
+@media (min-width:900px) and (max-width:1100px){body{padding-left:84px}.tabbar{width:84px;padding:22px 10px}.tabbar::before{content:"🌱";text-align:center;padding:0 0 14px}.tabbar>button{justify-content:center;padding:12px 0;font-size:0;gap:0}.fab-t{display:none}.sheet,#toasts{left:84px}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -338,7 +394,7 @@ textarea.inp{resize:none}
 <nav class="tabbar">
   <button data-tab="hoy" class="on"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>Hoy</button>
   <button data-tab="progreso"><svg viewBox="0 0 24 24"><path d="M4 20V11M10 20V5M16 20v-6M21 20H3"/></svg>Progreso</button>
-  <button class="fab" data-action="nuevo" aria-label="Nuevo hábito"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+  <button class="fab" data-action="nuevo" aria-label="Nuevo hábito"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="fab-t">Nuevo hábito</span></button>
   <button data-tab="logros"><svg viewBox="0 0 24 24"><circle cx="12" cy="15" r="5.5"/><path d="M8.7 10.6 6 3h4l2 4.5L14 3h4l-2.7 7.6"/></svg>Logros</button>
   <button data-tab="ajustes"><svg viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/></svg>Ajustes</button>
 </nav>
@@ -881,7 +937,7 @@ function renderAjustes() {
     <button class="btn wide" data-action="importar">Restaurar un respaldo (JSON)</button>
     <button class="btn wide danger" data-action="reset">Borrar datos de este teléfono</button>
     <p class="hint">Borrar solo limpia este teléfono. Si tienes Google Sheets conectado, al sincronizar se vuelven a bajar.</p></div>
-  <p class="ver">Hábitos · v1.3</p>`;
+  <p class="ver">Hábitos · v1.4</p>`;
 }
 
 /* ---------- Panel inferior ---------- */
@@ -1294,7 +1350,14 @@ document.addEventListener('change', e => {
   const k = t.dataset.cfg; cfg[k] = t.value.trim();
   const { url, token, ...guardar } = cfg; save(K.cfg, guardar);
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && ui.sheet) closeSheet(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && ui.sheet) { closeSheet(); return; }
+  // Enter en un campo del panel = botón principal (Siguiente / Guardar)
+  if (e.key === 'Enter' && ui.sheet && e.target.tagName === 'INPUT' && !e.isComposing) {
+    const b = document.querySelector('#sheet .foot .btn.primary');
+    if (b) { e.preventDefault(); e.target.dispatchEvent(new Event('input', { bubbles:true })); b.click(); }
+  }
+});
 document.addEventListener('touchstart', () => {}, { passive:true });
 addEventListener('online', () => { updateSyncUI(); sync(); });
 addEventListener('offline', updateSyncUI);

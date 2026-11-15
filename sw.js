@@ -1,6 +1,6 @@
 // Hábitos: funciona sin conexión. Cambia la versión cuando subas cambios para forzar la actualización.
 const PREFIJO = 'habitos-';
-const CACHE = PREFIJO + 'v8';
+const CACHE = PREFIJO + 'v9';
 const ARCHIVOS = ['./', './index.html', './manifest.json', './apple-touch-icon.png', './icon-192.png', './icon-512.png'];
 const ESPERA_RED = 4000; // ms antes de usar la copia guardada si la red está muy lenta
 
