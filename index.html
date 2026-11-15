@@ -369,6 +369,7 @@ const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`
 const pYmd = s => { const [y,m,d] = s.split('-').map(Number); return new Date(y, m-1, d); };
 const addDays = (s, n) => { const d = pYmd(s); d.setDate(d.getDate() + n); return ymd(d); };
 const today = () => ymd(new Date());
+const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 const diffDays = (a, b) => Math.round((pYmd(b) - pYmd(a)) / 864e5);
 const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 const uid = () => 'h' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -436,13 +437,29 @@ const LOGROS = [
 /* ---------- Estado ---------- */
 const K = { state:'hab.state.v1', queue:'hab.queue.v1', cfg:'hab.cfg.v1', seen:'hab.seen.v1' };
 const load = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } };
-const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
-let state = load(K.state, { habitos:[], registros:{} });
-let queue = load(K.queue, []);
+let saveFallo = false;
+const save = (k, v) => {
+  try { localStorage.setItem(k, JSON.stringify(v)); saveFallo = false; return true; }
+  catch (e) { if (!saveFallo) { saveFallo = true; setTimeout(() => toast('⚠️ No se pudo guardar en este teléfono (almacenamiento lleno o bloqueado)'), 0); } return false; }
+};
+// Limpia lo guardado para que un dato corrupto no tumbe la app
+function sanoState(s) {
+  const habitos = Array.isArray(s && s.habitos) ? s.habitos.filter(h => h && h.id).map(normHabit) : [];
+  const registros = {};
+  const src = s && s.registros && typeof s.registros === 'object' ? s.registros : {};
+  for (const k in src) { const r = src[k]; if (r && r.habitoId && FECHA.test(r.fecha)) registros[r.habitoId + '|' + r.fecha] = r; }
+  return { habitos, registros };
+}
+const opValida = op => !!op && ((op.t === 'habito' && op.h && op.h.id) || (op.t === 'borrarHabito' && op.id)
+  || (op.t === 'registro' && op.r && op.r.habitoId && op.r.fecha) || (op.t === 'borrarRegistro' && op.habitoId && op.fecha));
+const sanoQueue = q => Array.isArray(q) ? q.filter(opValida) : [];
+let state = sanoState(load(K.state, null));
+let queue = sanoQueue(load(K.queue, []));
 let cfg = Object.assign({ nombre:'', ultimoSync:'' }, load(K.cfg, {}));
 cfg.url = /^https:\/\/script\.google\.com\/.+\/exec/.test(APPS_SCRIPT_URL.trim()) ? APPS_SCRIPT_URL.trim() : '';
 cfg.token = CLAVE;
 let seen = Object.assign({ logros:[], nivel:1, init:false }, load(K.seen, {}));
+if (!Array.isArray(seen.logros)) seen.logros = [];
 let ui = { vista:'hoy', fecha:today(), lastToday:today(), sheet:null };
 let CACHE = {};
 let syncing = false, syncTimer = null, lastError = '';
@@ -453,18 +470,19 @@ function normHabit(h) {
     color: /^#[0-9a-fA-F]{3,8}$/.test(h.color) ? h.color : '#6C5CE7',
     tipo: ['check','cantidad','tiempo'].includes(h.tipo) ? h.tipo : 'check',
     polaridad: h.polaridad === 'dejar' ? 'dejar' : 'construir',
-    unidad: String(h.unidad || ''), meta: num(h.meta), direccion: h.direccion === 'max' ? 'max' : 'min',
-    incremento: num(h.incremento) || 1, extraEtiqueta: String(h.extraEtiqueta || ''), extraPorUnidad: num(h.extraPorUnidad),
-    dias: String(h.dias || 'DLMXJVS'), rachaObjetivo: num(h.rachaObjetivo), orden: num(h.orden),
+    unidad: String(h.unidad || ''), meta: Math.max(0, num(h.meta)), direccion: h.direccion === 'max' ? 'max' : 'min',
+    incremento: Math.abs(num(h.incremento)) || 1, extraEtiqueta: String(h.extraEtiqueta || ''), extraPorUnidad: Math.max(0, num(h.extraPorUnidad)),
+    dias: 'DLMXJVS'.split('').filter(c => String(h.dias || '').toUpperCase().includes(c)).join('') || 'DLMXJVS',
+    rachaObjetivo: Math.max(0, Math.round(num(h.rachaObjetivo))), orden: num(h.orden),
     archivado: h.archivado === true || String(h.archivado).toUpperCase() === 'TRUE',
-    creado: String(h.creado || today()).slice(0, 10), actualizado: String(h.actualizado || '')
+    creado: FECHA.test(String(h.creado || '').slice(0, 10)) ? String(h.creado).slice(0, 10) : today(), actualizado: String(h.actualizado || '')
   };
 }
 function fromServer(d) {
-  const habitos = (d.habitos || []).filter(h => h.id).map(normHabit);
+  const habitos = (d.habitos || []).filter(h => h && h.id).map(normHabit);
   const registros = {};
-  (d.registros || []).forEach(r => {
-    if (!r.habitoId || !r.fecha) return;
+  (Array.isArray(d.registros) ? d.registros : Object.values(d.registros || {})).forEach(r => {
+    if (!r || !r.habitoId || !FECHA.test(String(r.fecha || '').slice(0, 10))) return;
     const o = { habitoId:String(r.habitoId), fecha:String(r.fecha).slice(0,10), valor:num(r.valor),
       extra:(r.extra === '' || r.extra == null) ? '' : num(r.extra), nota:String(r.nota || ''), actualizado:String(r.actualizado || '') };
     registros[o.habitoId + '|' + o.fecha] = o;
@@ -490,7 +508,8 @@ function commit(op) {
   op.ts = new Date().toISOString();
   applyLocal(op);
   queue.push(op);
-  save(K.queue, queue); save(K.state, state);
+  if (queue.length > 60 && !syncing) compactQueue(); else save(K.queue, queue);
+  save(K.state, state);
   scheduleSync();
   render();
 }
@@ -498,9 +517,11 @@ function compactQueue() {
   const keyOf = op => (op.t === 'registro') ? 'r:' + op.r.habitoId + '|' + op.r.fecha
     : (op.t === 'borrarRegistro') ? 'r:' + op.habitoId + '|' + op.fecha
     : (op.t === 'habito') ? 'h:' + op.h.id : 'h:' + op.id;
-  const last = {};
-  queue.forEach((op, i) => { last[keyOf(op)] = i; });
-  queue = queue.filter((op, i) => last[keyOf(op)] === i);
+  // Se queda el último cambio de cada cosa, y además el primer alta de cada hábito
+  // para que sus registros nunca lleguen al servidor antes que el hábito.
+  const last = {}, first = {};
+  queue.forEach((op, i) => { const k = keyOf(op); last[k] = i; if (op.t === 'habito' && !(k in first)) first[k] = i; });
+  queue = queue.filter((op, i) => { const k = keyOf(op); return last[k] === i || first[k] === i; });
   save(K.queue, queue);
 }
 const getReg = (id, f) => state.registros[id + '|' + f];
@@ -523,12 +544,18 @@ async function sync(manual) {
   const batch = queue.slice();
   try {
     const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 30000);
-    const res = await fetch(cfg.url, { method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' },
-      body: JSON.stringify({ clave: cfg.token || '', ops: batch }), signal: ctrl.signal });
-    clearTimeout(to);
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.error || 'Error del servidor');
-    queue = queue.slice(batch.length); save(K.queue, queue);
+    let data;
+    try {
+      const res = await fetch(cfg.url, { method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' },
+        body: JSON.stringify({ clave: cfg.token || '', ops: batch }), signal: ctrl.signal });
+      const txt = await res.text();
+      try { data = JSON.parse(txt); } catch (e) { throw new Error(res.ok ? 'Respuesta inválida del Apps Script (revisa que esté publicado para "Cualquier usuario")' : 'El servidor respondió ' + res.status); }
+    } finally { clearTimeout(to); }
+    if (!data || !data.ok) throw new Error((data && data.error) || 'Error del servidor');
+    // Sin las dos listas no se toca lo local: una respuesta incompleta no debe borrar tus datos
+    if (!Array.isArray(data.habitos) || !Array.isArray(data.registros)) throw new Error('Respuesta incompleta del servidor');
+    const enviados = new Set(batch);
+    queue = queue.filter(op => !enviados.has(op)); save(K.queue, queue);
     state = fromServer(data); queue.forEach(applyLocal); save(K.state, state);
     cfg.ultimoSync = new Date().toISOString(); { const { url, token, ...guardar } = cfg; save(K.cfg, guardar); }
     lastError = ''; syncing = false;
@@ -593,10 +620,7 @@ function dayStatus(h, f) {
   const r = getReg(h.id, f);
   if (!r) return 'none';
   const v = num(r.valor);
-  if (h.tipo === 'check') {
-    if (h.polaridad === 'dejar') return v > 0 ? 'ok' : (v < 0 ? 'fail' : 'none');
-    return v > 0 ? 'ok' : (v < 0 ? 'fail' : 'none');
-  }
+  if (h.tipo === 'check') return v > 0 ? 'ok' : (v < 0 ? 'fail' : 'none');
   const m = num(h.meta);
   if (h.direccion === 'max') return v <= m ? 'ok' : 'fail';
   return v >= m ? 'ok' : (v > 0 ? 'partial' : 'none');
@@ -649,7 +673,7 @@ function G() {
   let perfect = 0;
   if (act.length) {
     const t = today(); let f = act.reduce((m, h) => { const d = firstDate(h); return d < m ? d : m; }, t), k = 0;
-    while (f <= t && k++ < 2000) { const r = dayRatio(f); if (r.total >= 3 && r.done >= r.total) perfect++; f = addDays(f, 1); }
+    while (f <= t && k++ < 4000) { const r = dayRatio(f); if (r.total >= 3 && r.done >= r.total) perfect++; f = addDays(f, 1); }
   }
   const g = { xp, totalOk, maxBest, maxBestDejar, metas, perfect, activos: act.length };
   g.logros = LOGROS.map(l => { const [v, m] = l.p(g); return { ...l, v: Math.min(v, m), m, ok: v >= m }; });
@@ -689,7 +713,8 @@ function render() {
   else if (v === 'progreso') $('#v-progreso').innerHTML = renderProgreso();
   else if (v === 'logros') $('#v-logros').innerHTML = renderLogros();
   else if (v === 'ajustes') { const box = $('#v-ajustes'); if (!box.contains(document.activeElement) || !box.innerHTML) box.innerHTML = renderAjustes(); }
-  if (ui.sheet === 'detalle' || ui.sheet === 'editor') renderSheet();
+  if (ui.sheet === 'detalle') renderSheet();
+  else if (ui.sheet === 'editor' && !(ui.ed && habitById(ui.ed.id))) closeSheet(); // el editor no se redibuja: perderías el teclado al escribir
 }
 function renderHeader() {
   const g = G(), lv = g.nivel, a = need(lv), b = need(lv + 1), p = Math.round((g.xpTotal - a) / (b - a) * 100);
@@ -853,9 +878,10 @@ function renderAjustes() {
     : '<p class="hint" style="margin:0 2px">Aquí aparecen los hábitos que archives. Conservan su historial.</p>'}</div>
   <div class="card"><h3>💾 Datos</h3>
     <button class="btn wide" data-action="exportar" style="margin-top:0">Descargar respaldo (JSON)</button>
+    <button class="btn wide" data-action="importar">Restaurar un respaldo (JSON)</button>
     <button class="btn wide danger" data-action="reset">Borrar datos de este teléfono</button>
     <p class="hint">Borrar solo limpia este teléfono. Si tienes Google Sheets conectado, al sincronizar se vuelven a bajar.</p></div>
-  <p class="ver">Hábitos · v1.2</p>`;
+  <p class="ver">Hábitos · v1.3</p>`;
 }
 
 /* ---------- Panel inferior ---------- */
@@ -1023,7 +1049,7 @@ function wGuardar() {
   if (!ui.editando) { h.id = uid(); h.creado = today(); h.orden = Math.max(0, ...state.habitos.map(x => x.orden || 0)) + 1; h.archivado = false; }
   commit({ t:'habito', h });
   closeSheet();
-  if (!ui.editando) { ui.vista = 'hoy'; ui.fecha = today(); render(); toast(`${esc(h.emoji)} ¡Hábito creado! A construir esa racha`); confetti(innerWidth / 2, innerHeight * .4, 90); }
+  if (!ui.editando) { ui.vista = 'hoy'; ui.fecha = today(); render(); scrollTo(0, 0); toast(`${esc(h.emoji)} ¡Hábito creado! A construir esa racha`); confetti(innerWidth / 2, innerHeight * .4, 90); }
   else toast('Cambios guardados ✅');
   checkProgress(true);
 }
@@ -1130,7 +1156,7 @@ function stepReg(h, f, d) {
   setReg(h, f, nv, h.extraEtiqueta ? ex : (r ? r.extra : ''));
 }
 const A = {
-  fecha: el => { ui.fecha = el.dataset.f; render(); },
+  fecha: el => { if (FECHA.test(el.dataset.f) && el.dataset.f <= today()) ui.fecha = el.dataset.f; render(); },
   irHoy: () => { ui.fecha = today(); render(); },
   nuevo: () => abrirWizard(null),
   cerrar: () => closeSheet(),
@@ -1141,20 +1167,22 @@ const A = {
   menos: (el, h) => accion(el, h, ui.fecha, () => stepReg(h, ui.fecha, -1)),
   cero: (el, h) => accion(el, h, ui.fecha, () => setReg(h, ui.fecha, 0, h.extraEtiqueta ? 0 : '')),
   editar: (el, h) => abrirEditor(h, ui.fecha),
-  dia: (el, h) => abrirEditor(h, el.dataset.f),
+  dia: (el, h) => { if (FECHA.test(el.dataset.f) && el.dataset.f <= today()) abrirEditor(h, el.dataset.f); },
   // editor
   edSet: el => { ui.ed.valor = +el.dataset.v; renderSheet(); },
-  edStep: el => { const h = habitById(ui.ed.id); const v = num(ui.ed.valor), inc = h.incremento || 1, nv = Math.max(0, r2(v + (+el.dataset.d) * inc));
+  edStep: el => { const h = habitById(ui.ed.id); if (!h) return closeSheet(); const v = num(ui.ed.valor), inc = h.incremento || 1, nv = Math.max(0, r2(v + (+el.dataset.d) * inc));
     if (h.extraEtiqueta && h.extraPorUnidad) ui.ed.extra = Math.max(0, r2(num(ui.ed.extra) + (nv - v) / inc * h.extraPorUnidad));
     ui.ed.valor = nv; renderSheet(); },
   edVal: el => { ui.ed.valor = +el.dataset.v; renderSheet(); },
   edExtra: el => { ui.ed.extra = Math.max(0, r2(num(ui.ed.extra) + (+el.dataset.d))); renderSheet(); },
   edCerrar: () => edSalir(),
-  edBorrar: () => { const h = habitById(ui.ed.id); delReg(h, ui.ed.f); toast('Registro borrado'); edSalir(); },
+  edBorrar: () => { const h = habitById(ui.ed.id); if (!h) return closeSheet(); delReg(h, ui.ed.f); toast('Registro borrado'); edSalir(); },
   edGuardar: el => {
     const e = ui.ed, h = habitById(e.id), f = e.f;
+    if (!h) return closeSheet();
+    e.nota = String(e.nota || '').trim();
     accion(el, h, f, () => {
-      if (h.tipo === 'check') { if (!num(e.valor)) { if (e.existe) delReg(h, f); } else setReg(h, f, num(e.valor), '', e.nota); }
+      if (h.tipo === 'check') { if (!num(e.valor) && !e.nota) { if (e.existe) delReg(h, f); } else setReg(h, f, Math.sign(num(e.valor)), '', e.nota); }
       else {
         const v = Math.max(0, num(e.valor)), ex = e.extra === '' ? '' : Math.max(0, num(e.extra));
         if (v === 0 && h.direccion !== 'max' && !e.nota && !ex) { if (e.existe) delReg(h, f); }
@@ -1200,6 +1228,19 @@ const A = {
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `habitos-respaldo-${today()}.json`;
     document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
   },
+  importar: () => {
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'application/json,.json'; inp.style.display = 'none';
+    inp.addEventListener('change', () => {
+      const file = inp.files && inp.files[0]; inp.remove(); if (!file) return;
+      const rd = new FileReader();
+      rd.onerror = () => toast('No se pudo leer el archivo');
+      rd.onload = () => { let d; try { d = JSON.parse(rd.result); } catch (e) { d = null; }
+        if (!d || !Array.isArray(d.habitos)) { toast('Ese archivo no es un respaldo de Hábitos'); return; }
+        importarDatos(d); };
+      rd.readAsText(file);
+    });
+    document.body.appendChild(inp); inp.click();
+  },
   reset: () => {
     const extra = queue.length ? `\n\nOjo: hay ${queue.length} cambio(s) que aún no se suben a Google Sheets y se perderán.` : '';
     if (!confirm('¿Borrar los datos guardados en este teléfono?' + extra)) return;
@@ -1208,6 +1249,26 @@ const A = {
   }
 };
 
+function importarDatos(d) {
+  const s = fromServer(d), regs = Object.values(s.registros);
+  if (!s.habitos.length) { toast('El respaldo no tiene hábitos'); return; }
+  if (!confirm(`¿Restaurar ${s.habitos.length} hábito(s) y ${regs.length} registro(s)?\nSe combinan con lo que ya tienes; donde coincidan, gana el respaldo.`)) return;
+  const ts = new Date().toISOString(), ids = new Set(s.habitos.map(h => h.id));
+  const add = op => { op.ts = ts; applyLocal(op); queue.push(op); };
+  s.habitos.forEach(h => add({ t:'habito', h:{ ...h, actualizado:ts } }));
+  regs.forEach(r => { if (ids.has(r.habitoId)) add({ t:'registro', r:{ ...r, actualizado:ts } }); });
+  if (!syncing) compactQueue(); else save(K.queue, queue);
+  save(K.state, state);
+  scheduleSync(); render(); checkProgress(false);
+  toast('Respaldo restaurado ✅');
+}
+function checkDia() {
+  const t = today();
+  if (ui.lastToday === t) return;
+  if (ui.fecha === ui.lastToday) ui.fecha = t;
+  ui.lastToday = t; render();
+}
+
 /* ---------- Eventos ---------- */
 document.addEventListener('click', e => {
   const tab = e.target.closest('[data-tab]');
@@ -1215,7 +1276,11 @@ document.addEventListener('click', e => {
   const el = e.target.closest('[data-action]');
   if (!el) return;
   const fn = A[el.dataset.action]; if (!fn) return;
+  const ae = document.activeElement; // en iOS los botones no quitan el foco: se suelta para guardar el nombre y refrescar Ajustes
+  if (ae && ae !== el && ae.dataset && ae.dataset.cfg) ae.blur();
+  checkDia(); // si cambió el día con la app abierta, que no se marque en la fecha de ayer
   const h = el.dataset.id ? habitById(el.dataset.id) : null;
+  if (el.dataset.id && !h) { render(); return; } // el hábito ya no existe (p. ej. se borró desde otro dispositivo)
   fn(el, h, e);
 });
 document.addEventListener('input', e => {
@@ -1235,11 +1300,17 @@ addEventListener('online', () => { updateSyncUI(); sync(); });
 addEventListener('offline', updateSyncUI);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
-  const t = today();
-  if (ui.lastToday !== t) { if (ui.fecha === ui.lastToday) ui.fecha = t; ui.lastToday = t; render(); }
+  checkDia();
   sync();
 });
-setInterval(() => { if (queue.length && !syncing) sync(); }, 45000);
+// Otra pestaña o ventana de la app cambió los datos: se recargan para no pisarlos
+addEventListener('storage', e => {
+  if (e.key !== K.state && e.key !== K.queue && e.key !== null) return;
+  if (syncing) return;
+  state = sanoState(load(K.state, null)); queue = sanoQueue(load(K.queue, []));
+  render();
+});
+setInterval(() => { checkDia(); if (queue.length && !syncing) sync(); }, 45000);
 
 /* ---------- Inicio ---------- */
 render();
